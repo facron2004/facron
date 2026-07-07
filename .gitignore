@@ -56,3 +56,7 @@ debug/
 chatgpt_review.zip
 *.zip
 start.log
+
+# Bundled Windows binaries (Redis, etc.) — keep source, drop .exe/.pdb
+tools/redis/*.exe
+tools/redis/*.pdb
