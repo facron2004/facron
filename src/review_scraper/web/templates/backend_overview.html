@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Amazon关键词竞品监控系统 · 后端实现看板</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+
+      :root {
+        --bg: #f4f7fb;
+        --panel: #ffffff;
+        --line: #dce3ef;
+        --ink: #0f172a;
+        --muted: #4b5a78;
+        --brand: #0b6bff;
+        --brand-2: #00a3a3;
+        --good: #0f9d58;
+        --warn: #f59e0b;
+        --bad: #dc2626;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 0% 0%, #eaf2ff 0%, transparent 38%),
+          radial-gradient(circle at 100% 0%, #eafdfb 0%, transparent 32%),
+          var(--bg);
+        color: var(--ink);
+        font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      .shell {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      .hero {
+        background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 62%, #f2ffff 100%);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 24px;
+        box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-family: "Space Grotesk", sans-serif;
+        letter-spacing: 0.2px;
+        font-size: clamp(1.4rem, 2.4vw, 2.2rem);
+      }
+
+      .hero p {
+        margin: 8px 0 0;
+        color: var(--muted);
+      }
+
+      .chips {
+        margin-top: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .chip {
+        border: 1px solid #cbd8ee;
+        border-radius: 999px;
+        padding: 6px 12px;
+        background: #fff;
+        color: #15325e;
+        font-size: 12px;
+      }
+
+      .section {
+        margin-top: 22px;
+      }
+
+      .section-title {
+        margin: 0 0 12px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 1.1rem;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        transition: transform 160ms ease, box-shadow 160ms ease;
+      }
+
+      .metric:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
+      }
+
+      .metric .label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .metric .value {
+        margin-top: 4px;
+        font-size: 1.4rem;
+        font-weight: 700;
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      .grid-3 {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+      }
+
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .badge {
+        font-size: 11px;
+        border-radius: 999px;
+        padding: 3px 8px;
+        border: 1px solid;
+      }
+
+      .ok {
+        color: var(--good);
+        border-color: #b9e7cc;
+        background: #edf9f2;
+      }
+
+      .warn {
+        color: var(--warn);
+        border-color: #fde4b0;
+        background: #fff7e7;
+      }
+
+      .bad {
+        color: var(--bad);
+        border-color: #fecaca;
+        background: #fff1f1;
+      }
+
+      .steps {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .step {
+        border-left: 3px solid var(--brand);
+        padding-left: 10px;
+        color: #1e3357;
+        font-size: 14px;
+      }
+
+      .keyword-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .keyword-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+      }
+
+      .keyword-card h4 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .keyword-meta {
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .pill {
+        font-size: 12px;
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: #f0f5ff;
+        color: #23448a;
+      }
+
+      .list {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        color: #273754;
+        font-size: 13px;
+      }
+
+      .validation {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+      }
+
+      .validation-keyword {
+        margin-top: 10px;
+        border: 1px dashed #cdd8eb;
+        border-radius: 12px;
+        padding: 10px;
+      }
+
+      .asin {
+        font-family: "Space Grotesk", monospace;
+        font-weight: 600;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .loading {
+        padding: 18px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+
+      @media (max-width: 1024px) {
+        .metrics,
+        .grid-3,
+        .keyword-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1 id="title">后端实现看板加载中</h1>
+        <p id="subtitle">正在拉取后端实现与最新运行数据</p>
+        <div class="chips" id="runtimeChips"></div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">运行概览</h2>
+        <div class="metrics" id="metrics">
+          <div class="loading">加载中...</div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">后端能力模块</h2>
+        <div class="grid-3" id="modules"></div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">数据流转链路</h2>
+        <div class="steps" id="pipeline"></div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">关键词结果卡片</h2>
+        <div class="keyword-grid" id="keywords"></div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">真实抓取验证</h2>
+        <div class="validation" id="validation"></div>
+      </section>
+    </main>
+
+    <script>
+      function tagClass(status) {
+        if (status === "ready") return "badge ok";
+        if (status === "warn") return "badge warn";
+        return "badge bad";
+      }
+
+      function fmtEventCounter(counter) {
+        const entries = Object.entries(counter || {});
+        if (!entries.length) return "无事件";
+        return entries.map(([k, v]) => `${k}: ${v}`).join(" · ");
+      }
+
+      async function loadOverview() {
+        const res = await fetch("/api/frontend/overview");
+        if (!res.ok) throw new Error(`overview failed: ${res.status}`);
+        return res.json();
+      }
+
+      function render(data) {
+        document.getElementById("title").textContent = data.title;
+        document.getElementById("subtitle").textContent = data.subtitle;
+
+        const chips = document.getElementById("runtimeChips");
+        chips.innerHTML = `
+          <span class="chip">collector: ${data.runtime.collector}</span>
+          <span class="chip">top_n: ${data.runtime.top_n}</span>
+          <span class="chip">bsr_top_n: ${data.runtime.bsr_top_n}</span>
+          <span class="chip">push: ${data.runtime.push_channel}</span>
+          <span class="chip">retry: ${data.runtime.max_attempts}x</span>
+        `;
+
+        const metrics = document.getElementById("metrics");
+        metrics.innerHTML = `
+          <article class="metric">
+            <div class="label">最近运行日期</div>
+            <div class="value">${data.latest_run.snapshot_date || "-"}</div>
+          </article>
+          <article class="metric">
+            <div class="label">关键词数量</div>
+            <div class="value">${data.latest_run.keyword_count}</div>
+          </article>
+          <article class="metric">
+            <div class="label">触发推送数</div>
+            <div class="value">${data.latest_run.push_count}</div>
+          </article>
+          <article class="metric">
+            <div class="label">失败关键词数</div>
+            <div class="value">${data.latest_run.failed_count}</div>
+          </article>
+        `;
+
+        const modules = document.getElementById("modules");
+        modules.innerHTML = data.modules
+          .map(
+            (m) => `
+              <article class="card">
+                <h3>${m.name} <span class="${tagClass(m.status)}">${m.status}</span></h3>
+                <div class="small">${m.desc}</div>
+              </article>
+            `
+          )
+          .join("");
+
+        const pipeline = document.getElementById("pipeline");
+        pipeline.innerHTML = data.pipeline_steps.map((step) => `<div class="step">${step}</div>`).join("");
+
+        const keywords = document.getElementById("keywords");
+        keywords.innerHTML = (data.keyword_summaries || [])
+          .map(
+            (item) => `
+              <article class="keyword-card">
+                <h4>${item.keyword}</h4>
+                <div class="keyword-meta">
+                  <span class="pill">事件数 ${item.event_count}</span>
+                  <span class="pill">推送 ${item.push_status}</span>
+                  <span class="pill">折扣数 ${item.metrics.discount_asin_count ?? 0}</span>
+                </div>
+                <ul class="list">
+                  <li>${fmtEventCounter(item.event_counter)}</li>
+                  <li>趋势: ${item.analysis.market_trend}</li>
+                  <li>价格: ${item.analysis.price_competition}</li>
+                </ul>
+              </article>
+            `
+          )
+          .join("");
+
+        const validation = document.getElementById("validation");
+        if (!data.real_validation.available) {
+          validation.innerHTML = `<div class="badge warn">未加载真实验证</div><p class="small">${data.real_validation.message}</p>`;
+          return;
+        }
+        validation.innerHTML = `
+          <p class="small">文件: ${data.real_validation.file_path}</p>
+          <p class="small">生成时间: ${data.real_validation.generated_at || "-"}</p>
+          ${data.real_validation.keywords
+            .map(
+              (k) => `
+                <div class="validation-keyword">
+                  <strong>${k.keyword}</strong>
+                  <div class="small">Top Count: ${k.top_count}</div>
+                  <ul class="list">
+                    ${k.sample_items
+                      .map(
+                        (it) => `
+                          <li>
+                            <span class="asin">${it.asin}</span>
+                            | ${it.title || "N/A"}
+                            | ${it.bsr || "N/A"}
+                            | <a href="${it.url}" target="_blank" rel="noreferrer">Amazon链接</a>
+                          </li>
+                        `
+                      )
+                      .join("")}
+                  </ul>
+                </div>
+              `
+            )
+            .join("")}
+        `;
+      }
+
+      loadOverview().then(render).catch((err) => {
+        document.body.innerHTML = `<main class="shell"><section class="hero"><h1>加载失败</h1><p>${err.message}</p></section></main>`;
+      });
+    </script>
+  </body>
+</html>

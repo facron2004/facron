@@ -1,0 +1,105 @@
+{% extends "base_new.html.j2" %}
+
+{% block title %}商品 · Review Scraper{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>商品工作台</h1>
+  <p>查看内部商品 ID、外部平台 ID，以及每个商品对应的历史任务。</p>
+</div>
+
+<div class="grid grid-4" style="margin-bottom: 16px;">
+  <div class="metric-card"><div class="metric-label">总商品</div><div class="metric-value" id="metricTotal">--</div></div>
+  <div class="metric-card"><div class="metric-label">有任务商品</div><div class="metric-value" id="metricWithTasks">--</div></div>
+  <div class="metric-card"><div class="metric-label">最近任务</div><div class="metric-value" id="metricLatest">--</div></div>
+  <div class="metric-card"><div class="metric-label">平台数</div><div class="metric-value" id="metricPlatforms">--</div></div>
+</div>
+
+<div class="card" style="margin-bottom: 16px;">
+  <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;">
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <span class="metric-label">平台</span>
+      <select id="platformFilter" style="width:auto; min-width:160px; height:32px; font-size:12px;">
+        <option value="all">全部平台</option>
+        <option value="tmall">tmall</option>
+      </select>
+    </div>
+    <button class="btn btn-secondary btn-sm" id="refreshProducts" type="button">刷新</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>商品列表</h2></div>
+  <div id="productsTable"><div class="loading-block">加载中...</div></div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .product-table th { color: var(--text-muted); font-size: 12px; font-weight: 500; }
+  .product-table td { font-size: 13px; vertical-align: top; }
+  .mono { font-family: var(--font-mono); color: var(--text-body); }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let allProducts = [];
+  let currentPlatform = 'all';
+
+  async function loadProducts() {
+    const url = currentPlatform === 'all' ? '/api/products?limit=100' : `/api/products?limit=100&platform=${currentPlatform}`;
+    const res = await fetch(url);
+    allProducts = await res.json();
+    renderMetrics();
+    renderProducts();
+  }
+
+  function renderMetrics() {
+    document.getElementById('metricTotal').textContent = allProducts.length;
+    document.getElementById('metricWithTasks').textContent = allProducts.filter(p => (p.task_count || 0) > 0).length;
+    document.getElementById('metricLatest').textContent = allProducts.filter(p => p.latest_task_id).length;
+    document.getElementById('metricPlatforms').textContent = new Set(allProducts.map(p => p.platform)).size || 0;
+  }
+
+  function renderProducts() {
+    if (!allProducts.length) {
+      document.getElementById('productsTable').innerHTML = '<div class="empty-state">暂无商品</div>';
+      return;
+    }
+    document.getElementById('productsTable').innerHTML = `
+      <div class="table-wrap">
+        <table class="product-table">
+          <thead>
+            <tr>
+              <th>内部 ID</th><th>平台</th><th>外部商品 ID</th><th>任务数</th><th>最近任务</th><th>状态</th><th>商品链接</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${allProducts.map(p => `
+              <tr>
+                <td class="mono">${p.id.substring(0, 8)}…</td>
+                <td><span class="status status-${p.status}">${p.platform}</span></td>
+                <td class="mono">${p.external_product_id || '—'}</td>
+                <td>${p.task_count || 0}</td>
+                <td>${p.latest_task_id ? `<a href="/tasks/${p.latest_task_id}">${p.latest_task_id.substring(0, 8)}…</a>` : '—'}</td>
+                <td>${p.status}</td>
+                <td style="max-width: 360px; word-break: break-all;">${p.source_url}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  document.getElementById('platformFilter').addEventListener('change', (e) => {
+    currentPlatform = e.target.value;
+    loadProducts();
+  });
+  document.getElementById('refreshProducts').addEventListener('click', loadProducts);
+  loadProducts().catch((err) => {
+    document.getElementById('productsTable').innerHTML = `<div class="error-state">${err.message}</div>`;
+  });
+</script>
+{% endblock %}

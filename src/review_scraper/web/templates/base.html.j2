@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Review Scraper{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-brand">
+      <a href="/">Review Scraper</a>
+    </div>
+    <div class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/reviews">Reviews</a>
+      <a href="/products">Products</a>
+      <a href="/tasks">Tasks</a>
+    </div>
+  </nav>
+  <main class="shell">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

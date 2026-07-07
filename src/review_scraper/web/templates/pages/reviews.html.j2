@@ -1,0 +1,143 @@
+{% extends "base.html.j2" %}
+{% block title %}Reviews · Review Scraper{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>天猫评论抓取</h1>
+  <p>输入天猫商品链接，自动抓取评论数据并导出</p>
+</section>
+
+<section class="section">
+  <div class="grid-2">
+    <div class="card">
+      <h3>新建抓取任务</h3>
+      <form id="scrapeForm">
+        <div class="form-group">
+          <label for="url">天猫商品链接</label>
+          <input type="url" id="url" name="url" required
+                 placeholder="https://detail.tmall.com/item.htm?id=..."
+                 value="https://detail.tmall.com/item.htm?id=911874279626" />
+        </div>
+        <div class="grid-3">
+          <div class="form-group">
+            <label for="maxPages">最大页数 (0=全部)</label>
+            <input type="number" id="maxPages" name="max_pages" value="0" min="0" max="100" />
+          </div>
+          <div class="form-group">
+            <label for="sort">评论排序</label>
+            <select id="sort" name="sort">
+              <option value="default">默认排序</option>
+              <option value="latest">最新</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="headless">无头模式</label>
+            <select id="headless" name="headless">
+              <option value="true">是</option>
+              <option value="false">否 (需登录时选)</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary mt" id="submitBtn">启动抓取</button>
+      </form>
+      <div id="scrapeStatus" class="small mt" style="display:none"></div>
+    </div>
+
+    <div class="card">
+      <h3>最近任务</h3>
+      <div id="recentTasks">
+        <div class="loading">加载中...</div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block head %}
+<script>
+  const form = document.getElementById("scrapeForm");
+  const statusEl = document.getElementById("scrapeStatus");
+  const submitBtn = document.getElementById("submitBtn");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    submitBtn.textContent = "提交中...";
+    statusEl.style.display = "block";
+    statusEl.innerHTML = '<span class="status-dot status-running"></span> 正在提交任务...';
+
+    const payload = {
+      url: document.getElementById("url").value,
+      max_pages: parseInt(document.getElementById("maxPages").value),
+      sort: document.getElementById("sort").value,
+      headless: document.getElementById("headless").value === "true",
+    };
+
+    try {
+      const res = await fetch("/api/reviews/tmall/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || "Failed");
+      const task = await res.json();
+      statusEl.innerHTML = `<span class="status-dot status-running"></span> 任务 ${task.task_id} 已启动，正在抓取...`;
+      pollTask(task.task_id);
+    } catch (err) {
+      statusEl.innerHTML = `<span class="status-dot status-failed"></span> 提交失败: ${err.message}`;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "启动抓取";
+    }
+  });
+
+  async function pollTask(taskId) {
+    const poll = async () => {
+      const res = await fetch(`/api/reviews/tmall/tasks/${taskId}`);
+      const task = await res.json();
+
+      if (task.status === "done") {
+        statusEl.innerHTML = `<span class="status-dot status-done"></span> 抓取完成! 共 ${task.review_count} 条评论, ${task.page_count} 页。
+          <div class="mt">
+            <a href="/api/reviews/tmall/tasks/${taskId}/download?format=csv" class="btn btn-secondary" style="font-size:12px">下载 CSV</a>
+            <a href="/api/reviews/tmall/tasks/${taskId}/download?format=json" class="btn btn-secondary" style="font-size:12px">下载 JSON</a>
+          </div>`;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "启动抓取";
+        loadRecentTasks();
+        return;
+      }
+
+      if (task.status === "failed") {
+        statusEl.innerHTML = `<span class="status-dot status-failed"></span> 抓取失败: ${task.error}`;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "启动抓取";
+        return;
+      }
+
+      statusEl.innerHTML = `<span class="status-dot status-running"></span> 抓取中... (${task.review_count} 条已捕获)`;
+      setTimeout(poll, 2000);
+    };
+    poll();
+  }
+
+  async function loadRecentTasks() {
+    const res = await fetch("/api/reviews/tmall/tasks?limit=10");
+    const tasks = await res.json();
+    const el = document.getElementById("recentTasks");
+    if (!tasks.length) {
+      el.innerHTML = '<div class="small">暂无任务记录</div>';
+      return;
+    }
+    el.innerHTML = tasks.map(t => `
+      <div class="mb" style="padding:8px;border-bottom:1px solid var(--line)">
+        <span class="status-dot status-${t.status}"></span>
+        <strong class="small">${t.item_id || "?"}</strong>
+        <span class="small">${t.review_count} 条</span>
+        <span class="small" style="float:right">${t.created_at ? new Date(t.created_at).toLocaleString() : ""}</span>
+        ${t.status === "done" ? `<a href="/api/reviews/tmall/tasks/${t.task_id}/download?format=csv" class="small" style="margin-left:8px">下载</a>` : ""}
+        ${t.status === "failed" ? `<span class="small bad">${t.error}</span>` : ""}
+      </div>
+    `).join("");
+  }
+
+  loadRecentTasks();
+</script>
+{% endblock %}

@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Review Scraper{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ============================================================
+       Design Tokens — 参考 Linear / Vercel / Stripe Dashboard
+       克制、专业、有层级的工具型 SaaS 后台
+       ============================================================ */
+    :root {
+      /* 背景层级（深灰蓝黑，非纯黑）*/
+      --bg-app: #0B0F17;
+      --bg-surface: #111827;
+      --bg-elevated: #172033;
+      --bg-hover: rgba(255, 255, 255, 0.04);
+      --bg-active: rgba(255, 255, 255, 0.06);
+
+      /* 边框（克制，无发光）*/
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-default: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.14);
+
+      /* 文字三级 */
+      --text-primary: #F8FAFC;
+      --text-body: #CBD5E1;
+      --text-muted: #64748B;
+      --text-subtle: #94A3B8;
+
+      /* 主色 — 低饱和蓝紫 */
+      --accent: #6366F1;
+      --accent-hover: #5558E0;
+      --accent-soft: rgba(99, 102, 241, 0.12);
+      --accent-border: rgba(99, 102, 241, 0.32);
+
+      /* 辅助色（仅状态）*/
+      --success: #10B981;
+      --success-soft: rgba(16, 185, 129, 0.12);
+      --warning: #F59E0B;
+      --warning-soft: rgba(245, 158, 11, 0.12);
+      --danger: #EF4444;
+      --danger-soft: rgba(239, 68, 68, 0.12);
+      --info: #3B82F6;
+      --info-soft: rgba(59, 130, 246, 0.12);
+
+      /* 圆角统一 */
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-pill: 999px;
+
+      /* 阴影克制，不发光 */
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.35);
+
+      /* 间距 */
+      --space-page: 32px;
+      --space-section: 24px;
+      --space-card: 20px;
+
+      /* 字号 */
+      --fs-page-title: 32px;
+      --fs-section-title: 20px;
+      --fs-body: 14px;
+      --fs-label: 13px;
+      --fs-hint: 12px;
+
+      --font-sans: 'Inter', system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      --font-mono: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      background: var(--bg-app);
+      color: var(--text-body);
+      font-family: var(--font-sans);
+      font-size: var(--fs-body);
+      line-height: 1.5;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* 极淡的背景纹理（非赛博朋克网格，仅微妙层次感）*/
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99, 102, 241, 0.06), transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* ============================================================
+       Navigation — 简洁 SaaS 顶栏
+       ============================================================ */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: 56px;
+      background: rgba(11, 15, 23, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    .nav-content {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 0 var(--space-page);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, var(--accent), #8B5CF6);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .brand-name { color: var(--text-primary); }
+    .brand-suffix { color: var(--text-muted); font-weight: 400; }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-subtle);
+      border-radius: var(--radius-sm);
+      transition: color 120ms, background 120ms;
+    }
+
+    .nav-links a:hover {
+      color: var(--text-primary);
+      background: var(--bg-hover);
+    }
+
+    .nav-links a.active {
+      color: var(--text-primary);
+      background: var(--bg-active);
+    }
+
+    /* ============================================================
+       Layout shell
+       ============================================================ */
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: var(--space-page);
+      position: relative;
+      z-index: 1;
+      min-height: calc(100vh - 56px);
+    }
+
+    .page-head {
+      margin-bottom: var(--space-section);
+    }
+
+    .page-head h1 {
+      font-size: var(--fs-page-title);
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+
+    .page-head p {
+      margin-top: 8px;
+      color: var(--text-muted);
+      font-size: 15px;
+      max-width: 70ch;
+    }
+
+    /* ============================================================
+       Card
+       ============================================================ */
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      padding: var(--space-card);
+      transition: border-color 160ms;
+    }
+
+    .card:hover {
+      border-color: var(--border-strong);
+    }
+
+    .card h2 {
+      font-size: var(--fs-section-title);
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .card h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    /* ============================================================
+       Grid utilities
+       ============================================================ */
+    .grid { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-main { grid-template-columns: 1.5fr 1fr; }
+    .span-full { grid-column: 1 / -1; }
+
+    .stack > * + * { margin-top: 16px; }
+
+    /* ============================================================
+       Metric card (数据指标卡)
+       ============================================================ */
+    .metric-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-height: 92px;
+    }
+
+    .metric-label {
+      font-size: var(--fs-hint);
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .metric-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .metric-note {
+      font-size: var(--fs-hint);
+      color: var(--text-subtle);
+    }
+
+    /* ============================================================
+       Buttons
+       ============================================================ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 40px;
+      padding: 0 16px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 120ms, border-color 120ms, color 120ms;
+      white-space: nowrap;
+    }
+
+    .btn:active { transform: translateY(0.5px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .btn-secondary {
+      background: var(--bg-elevated);
+      border-color: var(--border-default);
+      color: var(--text-body);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--bg-hover);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-subtle);
+    }
+    .btn-ghost:hover:not(:disabled) {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .btn-sm {
+      height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+
+    /* Segmented control (pill buttons) */
+    .segmented {
+      display: inline-flex;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .segmented button {
+      border: none;
+      background: transparent;
+      color: var(--text-subtle);
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 120ms, color 120ms;
+    }
+
+    .segmented button:hover { color: var(--text-body); }
+    .segmented button.active {
+      background: var(--bg-active);
+      color: var(--text-primary);
+    }
+
+    /* ============================================================
+       Form
+       ============================================================ */
+    .form { display: grid; gap: 16px; }
+
+    .field { display: grid; gap: 6px; }
+
+    .field label {
+      font-size: var(--fs-label);
+      font-weight: 500;
+      color: var(--text-body);
+    }
+
+    .field input,
+    .field select,
+    .field textarea,
+    input[type="text"],
+    input[type="url"],
+    input[type="number"],
+    input[type="search"],
+    select {
+      width: 100%;
+      height: 44px;
+      padding: 0 12px;
+      background: var(--bg-app);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 14px;
+      transition: border-color 120ms, box-shadow 120ms;
+    }
+
+    .field input::placeholder { color: var(--text-muted); }
+
+    .field input:focus,
+    .field select:focus,
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .hint {
+      font-size: var(--fs-hint);
+      color: var(--text-muted);
+    }
+
+    /* ============================================================
+       Status badges & dots
+       ============================================================ */
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+
+    .status::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .status-queued { color: var(--text-subtle); background: var(--bg-hover); border-color: var(--border-default); }
+    .status-running { color: var(--info); background: var(--info-soft); border-color: rgba(59, 130, 246, 0.24); }
+    .status-running::before { animation: pulse 1.6s ease-in-out infinite; }
+    .status-done { color: var(--success); background: var(--success-soft); border-color: rgba(16, 185, 129, 0.24); }
+    .status-failed { color: var(--danger); background: var(--danger-soft); border-color: rgba(239, 68, 68, 0.24); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border-default);
+      background: var(--bg-hover);
+      color: var(--text-body);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* ============================================================
+       Table
+       ============================================================ */
+    .table-wrap {
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    td {
+      padding: 12px 14px;
+      color: var(--text-body);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg-hover); }
+
+    .mono { font-family: var(--font-mono); font-size: 12px; }
+
+    /* ============================================================
+       Progress bar
+       ============================================================ */
+    .progress-track {
+      height: 6px;
+      border-radius: var(--radius-pill);
+      background: var(--bg-elevated);
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      border-radius: var(--radius-pill);
+      transition: width 320ms ease;
+    }
+
+    /* ============================================================
+       Loading
+       ============================================================ */
+    .loading-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border-default);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-block {
+      padding: 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .empty-state,
+    .error-state {
+      padding: 28px 24px;
+      text-align: center;
+      border-radius: var(--radius-md);
+      border: 1px dashed var(--border-default);
+      background: rgba(255, 255, 255, 0.015);
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .error-state {
+      border-style: solid;
+      border-color: rgba(239, 68, 68, 0.24);
+      color: #FCA5A5;
+      background: var(--danger-soft);
+    }
+
+    /* ============================================================
+       Callout / Tip
+       ============================================================ */
+    .callout {
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      color: var(--text-body);
+      font-size: 13px;
+    }
+
+    .callout strong { color: var(--text-primary); display: block; margin-bottom: 4px; }
+    .callout p { margin: 0; color: var(--text-subtle); }
+
+    /* ============================================================
+       Responsive
+       ============================================================ */
+    @media (max-width: 1100px) {
+      .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid-main { grid-template-columns: 1fr; }
+      .field-grid, .field-grid.two { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 768px) {
+      :root { --space-page: 16px; --space-card: 16px; }
+      .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+      .nav-content { padding: 0 16px; }
+      .nav-links { gap: 0; }
+      .nav-links a { padding: 7px 8px; font-size: 12px; }
+      .page-head h1 { font-size: 26px; }
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav>
+    <div class="nav-content">
+      <a href="/" class="brand">
+        <span class="brand-mark">R</span>
+        <span class="brand-name">Review Scraper</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="/" data-nav="dashboard">Dashboard</a></li>
+        <li><a href="/reviews" data-nav="scrape">Scrape</a></li>
+        <li><a href="/tasks" data-nav="tasks">Tasks</a></li>
+        <li><a href="/analysis" data-nav="analysis">Analysis</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}
+  <script>
+    // Highlight current nav item based on pathname
+    (function () {
+      const path = window.location.pathname;
+      const map = {
+        '/': 'dashboard',
+        '/reviews': 'scrape',
+        '/tasks': 'tasks',
+        '/analysis': 'analysis',
+      };
+      const key = map[path] || (path.startsWith('/tasks/') ? 'tasks' : null);
+      if (key) {
+        document.querySelector(`.nav-links a[data-nav="${key}"]`)?.classList.add('active');
+      }
+    })();
+  </script>
+  {% endblock %}
+</body>
+</html>

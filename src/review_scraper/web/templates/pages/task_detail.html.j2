@@ -1,0 +1,223 @@
+{% extends "base_new.html.j2" %}
+
+{% block title %}任务详情 · Review Scraper{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 id="taskTitle">加载中...</h1>
+  <p id="taskSubtitle">读取任务与产物信息</p>
+</div>
+
+<div class="grid grid-2" style="margin-bottom: 16px;">
+  <div class="card">
+    <div class="card-header"><h2>任务信息</h2></div>
+    <div id="taskMeta" class="stack"></div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h2>操作</h2></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn btn-secondary" id="retryTask" type="button">重试</button>
+      <button class="btn btn-secondary" id="deleteTask" type="button">删除</button>
+      <a class="btn btn-ghost" href="/tasks">返回列表</a>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+      <a class="btn btn-primary" id="exportReport" href="#" target="_blank">导出报告</a>
+      <a class="btn btn-ghost" href="#failure">失败证据</a>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: 16px;" id="failure">
+  <div class="card-header"><h2>失败证据</h2></div>
+  <div id="failureBlock"><div class="loading-block">如果任务失败，这里会显示错误信息与证据路径。</div></div>
+</div>
+
+<div class="card" style="margin-bottom: 16px;">
+  <div class="card-header"><h2>分析结果</h2></div>
+  <div id="analysisBlock"><div class="loading-block">等待分析...</div></div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>产物文件</h2></div>
+  <div id="artifactBlock"><div class="loading-block">加载中...</div></div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .meta-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .meta-item {
+    padding: 12px 14px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+  }
+  .meta-item .label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+  .meta-item .value { font-size: 14px; color: var(--text-primary); font-weight: 500; }
+  .artifact-item {
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 12px 14px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+  }
+  .artifact-item + .artifact-item { margin-top: 8px; }
+  .artifact-item a { color: var(--accent); font-weight: 500; font-size: 13px; }
+  pre {
+    background: var(--bg-app);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    color: var(--text-body);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    overflow-x: auto;
+    margin-top: 8px;
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/escape.js"></script>
+<script>
+  const taskId = "{{ task_id }}";
+
+  async function loadTask() {
+    const res = await fetch(`/api/reviews/tmall/tasks/${taskId}`);
+    if (!res.ok) throw new Error('任务不存在');
+    return res.json();
+  }
+
+  async function loadReviews() {
+    const res = await fetch(`/api/reviews/tmall/tasks/${taskId}/reviews?limit=5`);
+    if (!res.ok) throw new Error('无法读取评论');
+    return res.json();
+  }
+
+  async function loadAnalysis() {
+    const res = await fetch(`/api/analysis/tasks/${taskId}`);
+    if (!res.ok) throw new Error('分析失败');
+    return res.json();
+  }
+
+  async function connectTaskStream() {
+    let ws;
+    let closedByApp = false;
+    const connect = () => {
+      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${scheme}://${window.location.host}/api/reviews/tmall/tasks/${taskId}/ws`);
+      ws.onopen = () => {
+        document.getElementById('taskSubtitle').textContent = '实时状态已连接';
+        loadTask().then(renderProgressPatch).catch(() => {});
+      };
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.status || payload.progress !== undefined) {
+            renderProgressPatch(payload);
+          }
+        } catch (_) {}
+      };
+      ws.onclose = () => {
+        if (closedByApp) return;
+        document.getElementById('taskSubtitle').textContent = '实时状态断开，正在重连...';
+        setTimeout(connect, 1500);
+      };
+    };
+    connect();
+    return () => { closedByApp = true; try { ws && ws.close(); } catch (_) {} };
+  }
+
+  function renderProgressPatch(task) {
+    const statusEl = document.querySelector('.status');
+    if (statusEl && task.status) {
+      statusEl.textContent = task.status;
+      statusEl.className = `status status-${task.status}`;
+    }
+    const subtitle = document.getElementById('taskSubtitle');
+    if (subtitle && task.status) {
+      subtitle.textContent = `${task.task_type || '评论抓取'} · ${task.status}`;
+    }
+    const meta = document.getElementById('taskMeta');
+    if (meta && task.progress !== undefined) {
+      const items = meta.querySelectorAll('.meta-item .value');
+      if (items[1]) items[1].textContent = `${task.progress ?? 0}%`;
+      if (items[2] && task.review_count !== undefined) items[2].textContent = task.review_count;
+      if (items[3] && task.page_count !== undefined) items[3].textContent = task.page_count;
+    }
+  }
+
+  function renderFailure(task) {
+    const block = document.getElementById('failureBlock');
+    if (task.status !== 'failed') {
+      block.innerHTML = '<div class="loading-block">任务未失败，无需查看证据。</div>';
+      return;
+    }
+    block.innerHTML = `
+      <div class="artifact-item"><div><div class="label" style="font-size:12px;color:var(--text-muted);">错误信息</div><div style="font-size:13px;color:var(--text-primary);">${escapeHtml(task.error || '—')}</div></div></div>
+      <div class="artifact-item"><div><div class="label" style="font-size:12px;color:var(--text-muted);">错误 JSON</div><div style="font-size:12px;color:var(--text-muted);">结构化错误记录</div></div><a href="/api/reviews/tmall/tasks/${taskId}/artifacts/task_error" target="_blank">打开</a></div>
+      <div class="artifact-item"><div><div class="label" style="font-size:12px;color:var(--text-muted);">HTML</div><div style="font-size:12px;color:var(--text-muted);">失败页面快照</div></div><a href="/api/reviews/tmall/tasks/${taskId}/artifacts/error_html" target="_blank">打开</a></div>
+      <div class="artifact-item"><div><div class="label" style="font-size:12px;color:var(--text-muted);">日志</div><div style="font-size:12px;color:var(--text-muted);">console.log</div></div><a href="/api/reviews/tmall/tasks/${taskId}/artifacts/console_log" target="_blank">打开</a></div>
+      <div class="artifact-item"><div><div class="label" style="font-size:12px;color:var(--text-muted);">截图</div><div style="font-size:12px;color:var(--text-muted);">error.png</div></div><a href="/api/reviews/tmall/tasks/${taskId}/artifacts/screenshot" target="_blank">打开</a></div>
+    `;
+  }
+
+  async function render() {
+    const task = await loadTask();
+    document.getElementById('taskTitle').textContent = task.name || task.task_id;
+    document.getElementById('taskSubtitle').textContent = `${task.task_type || '评论抓取'} · ${task.status}`;
+    document.getElementById('exportReport').href = `/api/analysis/tasks/${taskId}/report.md`;
+
+    document.getElementById('taskMeta').innerHTML = `
+      <div class="meta-grid">
+        <div class="meta-item"><div class="label">状态</div><div class="value"><span class="status status-${escapeHtml(task.status)}">${escapeHtml(task.status)}</span></div></div>
+        <div class="meta-item"><div class="label">进度</div><div class="value">${safeNumber(task.progress, 0)}%</div></div>
+        <div class="meta-item"><div class="label">评论数</div><div class="value">${safeNumber(task.review_count, 0)}</div></div>
+        <div class="meta-item"><div class="label">页数</div><div class="value">${safeNumber(task.page_count, 0)}</div></div>
+        <div class="meta-item"><div class="label">商品 ID</div><div class="value">${escapeHtml(task.item_id || '-')}</div></div>
+        <div class="meta-item"><div class="label">创建时间</div><div class="value">${task.created_at ? escapeHtml(new Date(task.created_at).toLocaleString('zh-CN')) : '-'}</div></div>
+      </div>
+    `;
+
+    renderFailure(task);
+    connectTaskStream();
+
+    try {
+      const analysis = await loadAnalysis();
+      document.getElementById('analysisBlock').innerHTML = `
+        <div><strong style="color:var(--text-primary);">情感分析</strong><pre>${JSON.stringify(analysis.sentiment, null, 2)}</pre></div>
+        <div style="margin-top:12px;"><strong style="color:var(--text-primary);">关键词（前 10）</strong><pre>${JSON.stringify(analysis.keywords.slice(0, 10), null, 2)}</pre></div>
+        <div style="margin-top:12px;"><strong style="color:var(--text-primary);">洞察</strong><pre>${JSON.stringify(analysis.insights || {}, null, 2)}</pre></div>
+      `;
+    } catch (err) {
+      document.getElementById('analysisBlock').innerHTML = `<div class="loading-block">${escapeHtml(err.message)}</div>`;
+    }
+
+    try {
+      const reviews = await loadReviews();
+      document.getElementById('artifactBlock').innerHTML = `
+        <div class="artifact-item"><div><div class="label" style="font-size:12px;color:var(--text-muted);">JSON 结果</div><div style="font-size:12px;color:var(--text-muted);">完整评论数据</div></div><a href="/api/reviews/tmall/tasks/${taskId}/artifacts/json">下载 JSON</a></div>
+        <div class="artifact-item"><div><div class="label" style="font-size:12px;color:var(--text-muted);">CSV 结果</div><div style="font-size:12px;color:var(--text-muted);">表格格式</div></div><a href="/api/reviews/tmall/tasks/${taskId}/artifacts/csv">下载 CSV</a></div>
+        <div class="artifact-item"><div><div class="label" style="font-size:12px;color:var(--text-muted);">样本评论</div><div style="font-size:12px;color:var(--text-muted);">前 5 条</div></div><span style="font-size:13px;color:var(--text-primary);font-weight:500;">${safeNumber(reviews.reviews.length, 0)} 条</span></div>
+      `;
+    } catch (err) {
+      document.getElementById('artifactBlock').innerHTML = `<div class="loading-block">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  document.getElementById('retryTask').addEventListener('click', async () => {
+    await fetch(`/api/reviews/tmall/tasks/${taskId}/retry`, { method: 'POST' });
+    location.reload();
+  });
+
+  document.getElementById('deleteTask').addEventListener('click', async () => {
+    if (!confirm('删除该任务？')) return;
+    await fetch(`/api/reviews/tmall/tasks/${taskId}`, { method: 'DELETE' });
+    location.href = '/tasks';
+  });
+
+  render().catch((err) => {
+    document.body.innerHTML = `<main><div class="card"><div class="page-head"><h1>加载失败</h1><p>${escapeHtml(err.message)}</p></div><a href="/tasks" class="btn btn-secondary">返回任务列表</a></div></main>`;
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "review-scraper"
+version = "0.4.0"
+description = "电商评论抓取与分析系统 - 支持天猫、淘宝、京东等平台的评论采集和智能分析"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "pydantic-settings>=2.0",
+    "pydantic>=2.0",
+    "playwright>=1.40",
+    "httpx>=0.25",
+    "pandas>=2.0",
+    "openpyxl>=3.0",
+    "jinja2>=3.0",
+    "sqlalchemy>=2.0",
+    "alembic>=1.12",
+    "psycopg2-binary>=2.9",
+    "celery[redis]>=5.3",
+    "redis>=5.0",
+    "jieba>=0.42",
+    "slowapi>=0.1.9",
+    "prometheus-client>=0.19",
+    "reportlab>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.25",
+    "pytest-asyncio>=0.21",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+review_scraper = [
+  "web/templates/**/*.j2",
+  "web/static/**/*",
+]

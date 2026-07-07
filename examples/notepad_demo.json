@@ -1,0 +1,34 @@
+{
+  "name": "notepad_demo",
+  "variables": {
+    "message": "Hello from your first RPA workflow!\\nThis text was typed automatically."
+  },
+  "steps": [
+    {
+      "name": "Open Notepad",
+      "action": "open_app",
+      "path": "notepad.exe",
+      "store_as": "notepad"
+    },
+    {
+      "name": "Wait For UI",
+      "action": "wait",
+      "seconds": 1
+    },
+    {
+      "name": "Focus Notepad",
+      "action": "activate_window",
+      "pid": "${notepad.pid}"
+    },
+    {
+      "name": "Type Message",
+      "action": "type_text",
+      "text": "${message}"
+    },
+    {
+      "name": "Open Save Dialog",
+      "action": "hotkey",
+      "keys": ["CTRL", "S"]
+    }
+  ]
+}

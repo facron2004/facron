@@ -1,0 +1,154 @@
+{% extends "base_new.html.j2" %}
+
+{% block title %}数据分析 · Review Scraper{% endblock %}
+
+{% block head %}
+<style>
+  .analysis-grid { display:grid; gap:16px; }
+  .analysis-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analysis-list { display:flex; flex-direction:column; gap:8px; }
+  .analysis-item { padding:12px 14px; background: var(--bg-app); border:1px solid var(--border-default); border-radius: var(--radius-sm); }
+  .analysis-item.empty { color: var(--text-muted); }
+  .analysis-item .title { font-weight:600; color:var(--text-primary); margin-bottom:4px; }
+  .analysis-item .meta { color:var(--text-muted); font-size:12px; }
+  .chart-box { min-height: 280px; }
+  .muted { color: var(--text-muted); }
+  @media (max-width: 900px) {
+    .analysis-grid.two { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>评论洞察看板</h1>
+  <p>查看总览、SKU 问题、差评原因、代表评论和趋势。</p>
+</div>
+
+<div class="card" style="margin-bottom: 16px;">
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <input id="taskIdInput" type="text" placeholder="输入 task_id" style="min-width:280px;" />
+    <button class="btn btn-primary" id="loadBtn" type="button">加载分析</button>
+    <a id="reportMdBtn" class="btn btn-secondary" href="#" target="_blank">导出 Markdown</a>
+    <a id="reportPdfBtn" class="btn btn-secondary" href="#" target="_blank">导出 PDF</a>
+    <span id="loadHint" class="muted">选择一个已完成任务</span>
+  </div>
+</div>
+
+<div class="grid grid-4" style="margin-bottom: 16px;">
+  <div class="metric-card"><div class="metric-label">总评论</div><div class="metric-value" id="metricTotal">--</div></div>
+  <div class="metric-card"><div class="metric-label">差评率</div><div class="metric-value" id="metricNegative">--</div></div>
+  <div class="metric-card"><div class="metric-label">带图率</div><div class="metric-value" id="metricImages">--</div></div>
+  <div class="metric-card"><div class="metric-label">追评率</div><div class="metric-value" id="metricAppend">--</div></div>
+</div>
+
+<div class="analysis-grid two" style="margin-bottom:16px;">
+  <div class="card chart-box"><div class="card-header"><h2>情感概览</h2></div><canvas id="sentimentChart"></canvas></div>
+  <div class="card chart-box"><div class="card-header"><h2>评论趋势</h2></div><canvas id="timelineChart"></canvas></div>
+</div>
+
+<div class="analysis-grid two" style="margin-bottom:16px;">
+  <div class="card"><div class="card-header"><h2>SKU 问题排行</h2></div><div id="skuBlock" class="analysis-list"><div class="muted">等待加载...</div></div></div>
+  <div class="card"><div class="card-header"><h2>差评原因</h2></div><div id="painBlock" class="analysis-list"><div class="muted">等待加载...</div></div></div>
+</div>
+
+<div class="analysis-grid two" style="margin-bottom:16px;">
+  <div class="card"><div class="card-header"><h2>代表好评</h2></div><div id="positiveQuotes" class="analysis-list"></div></div>
+  <div class="card"><div class="card-header"><h2>代表差评</h2></div><div id="negativeQuotes" class="analysis-list"></div></div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>AI / 规则总结</h2></div>
+  <div id="summaryBlock" class="analysis-list"><div class="muted">等待加载...</div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/escape.js"></script>
+<script>
+  let sentimentChart;
+  let timelineChart;
+  let currentTaskId = '';
+
+  function renderCards(data) {
+    document.getElementById('metricTotal').textContent = data.total_reviews ?? 0;
+    document.getElementById('metricNegative').textContent = `${Math.round((data.negative_count || 0) / Math.max(1, data.total_reviews || 1) * 100)}%`;
+    document.getElementById('metricImages').textContent = `${Math.round((data.image_review_count || 0) / Math.max(1, data.total_reviews || 1) * 100)}%`;
+    document.getElementById('metricAppend').textContent = `${Math.round((data.append_review_count || 0) / Math.max(1, data.total_reviews || 1) * 100)}%`;
+  }
+
+  function renderSentimentChart(data) {
+    const ctx = document.getElementById('sentimentChart').getContext('2d');
+    if (sentimentChart) sentimentChart.destroy();
+    sentimentChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['正面', '中性', '负面'],
+        datasets: [{ data: [data.positive_count || 0, data.neutral_count || 0, data.negative_count || 0], backgroundColor: ['#22c55e', '#94a3b8', '#ef4444'] }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  function renderTimelineChart(items) {
+    const ctx = document.getElementById('timelineChart').getContext('2d');
+    if (timelineChart) timelineChart.destroy();
+    timelineChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: items.map(i => i.date),
+        datasets: [{ label: '评论数', data: items.map(i => i.review_count), borderColor: '#60a5fa', tension: 0.3 }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  function renderList(containerId, items, mapper) {
+    const el = document.getElementById(containerId);
+    if (!items || !items.length) {
+      el.innerHTML = '<div class="analysis-item empty">暂无数据</div>';
+      return;
+    }
+    el.innerHTML = items.map(mapper).join('');
+  }
+
+  async function loadAnalysis() {
+    const taskId = document.getElementById('taskIdInput').value.trim();
+    if (!taskId) return;
+    currentTaskId = taskId;
+    document.getElementById('loadHint').textContent = '加载中...';
+    const res = await fetch(`/api/analysis/tasks/${taskId}/overview`);
+    if (!res.ok) throw new Error('分析加载失败');
+    const data = await res.json();
+    renderCards(data);
+    renderSentimentChart(data);
+    renderTimelineChart(data.timeline || []);
+    renderList('skuBlock', data.sku_items || [], (item) => `
+      <div class="analysis-item">
+        <div class="title">${escapeHtml(item.sku)}</div>
+        <div class="meta">评论 ${safeNumber(item.review_count, 0)} · 差评 ${safeNumber(item.negative_count, 0)} · 差评率 ${escapeHtml(((item.negative_rate || 0) * 100).toFixed(1))}%</div>
+        <div class="meta">关键词：${(item.top_keywords || []).map(k => escapeHtml(k)).join(' / ') || '—'}</div>
+        <div class="meta">主要问题：${escapeHtml(item.main_issue || '—')}</div>
+      </div>
+    `);
+    renderList('painBlock', data.pain_points || [], (item) => `
+      <div class="analysis-item">
+        <div class="title">${escapeHtml(item.name)}</div>
+        <div class="meta">${escapeHtml(item.category)} · ${safeNumber(item.count, 0)} 条 · ${escapeHtml(item.severity)}</div>
+        <div class="meta">建议：${escapeHtml(item.suggestion)}</div>
+      </div>
+    `);
+    renderList('positiveQuotes', data.quotes?.positive_quotes || [], (q) => `<div class="analysis-item">${escapeHtml(q)}</div>`);
+    renderList('negativeQuotes', data.quotes?.negative_quotes || [], (q) => `<div class="analysis-item">${escapeHtml(q)}</div>`);
+    document.getElementById('summaryBlock').innerHTML = `
+      <div class="analysis-item"><div class="title">总结</div><div class="meta">${escapeHtml(data.summary || '—')}</div></div>
+      <div class="analysis-item"><div class="title">顶部关键词</div><div class="meta">${(data.top_keywords || []).map(k => escapeHtml(k[0])).join(' / ') || '—'}</div></div>
+    `;
+    document.getElementById('reportMdBtn').href = `/api/analysis/tasks/${taskId}/report.md`;
+    document.getElementById('reportPdfBtn').href = `/api/analysis/tasks/${taskId}/report.pdf`;
+    document.getElementById('loadHint').textContent = `已加载 ${taskId}`;
+  }
+
+  document.getElementById('loadBtn').addEventListener('click', () => loadAnalysis().catch(err => { document.getElementById('loadHint').textContent = err.message; }));
+</script>
+{% endblock %}

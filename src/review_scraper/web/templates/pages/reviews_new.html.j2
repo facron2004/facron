@@ -1,0 +1,626 @@
+{% extends "base_new.html.j2" %}
+
+{% block title %}抓取评论 · Review Scraper{% endblock %}
+
+{% block content %}
+<!-- Hero 简洁欢迎卡片 -->
+<div class="card" style="display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom: 24px;">
+  <div>
+    <h1 style="font-size: 32px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.02em; margin: 0;">评论抓取任务中心</h1>
+    <p style="margin: 8px 0 0; color: var(--text-muted); font-size: 15px; max-width: 60ch;">
+      创建、监控并导出商品评论抓取任务。粘贴商品链接后配置参数即可启动。
+    </p>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <a href="/tasks" class="btn btn-secondary">查看任务面板</a>
+    <a href="/analysis" class="btn btn-secondary">前往分析页</a>
+  </div>
+</div>
+
+<!-- 4 个状态指标卡 -->
+<div class="grid grid-4" style="margin-bottom: 24px;">
+  <article class="metric-card">
+    <span class="metric-label">状态</span>
+    <span class="metric-value">在线</span>
+    <span class="metric-note">任务调度 / 导出 / WebSocket</span>
+  </article>
+  <article class="metric-card">
+    <span class="metric-label">导出格式</span>
+    <span class="metric-value">CSV · XLSX · JSON</span>
+    <span class="metric-note">完成后自动生成</span>
+  </article>
+  <article class="metric-card">
+    <span class="metric-label">进度更新</span>
+    <span class="metric-value">轮询 + 实时</span>
+    <span class="metric-note">自动刷新任务进度</span>
+  </article>
+  <article class="metric-card">
+    <span class="metric-label">抓取引擎</span>
+    <span class="metric-value">Playwright</span>
+    <span class="metric-note">支持有头 / 无头模式</span>
+  </article>
+</div>
+
+<!-- 主区域：左大表单 + 右工作流 -->
+<div class="grid grid-main">
+  <!-- 左：新建任务表单 -->
+  <div class="card">
+    <div class="card-header">
+      <h2>新建任务</h2>
+    </div>
+
+    <form id="scrapeForm" class="form">
+      <div class="field">
+        <label for="url">商品链接</label>
+        <input
+          type="url"
+          id="url"
+          name="url"
+          required
+          placeholder="https://detail.tmall.com/item.htm?id=..."
+          value="https://detail.tmall.com/item.htm?id=911874279626"
+        />
+        <div class="hint">粘贴天猫商品详情页地址，系统会自动提取 item_id。</div>
+      </div>
+
+      <div class="field">
+        <label>抓取规模</label>
+        <div class="segmented" id="presetRow">
+          <button type="button" data-pages="3">3 页快照</button>
+          <button type="button" data-pages="10" class="active">10 页常规</button>
+          <button type="button" data-pages="0">全部抓取</button>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="maxPages">最大页数</label>
+          <input type="number" id="maxPages" name="max_pages" value="10" min="0" max="1000" />
+          <div class="hint">0 表示全部</div>
+        </div>
+        <div class="field">
+          <label for="sort">排序方式</label>
+          <select id="sort" name="sort">
+            <option value="default">默认排序</option>
+            <option value="time">按时间优先</option>
+            <option value="useful">按有用优先</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="headless">浏览器模式</label>
+          <select id="headless" name="headless">
+            <option value="true">无头模式（推荐）</option>
+            <option value="false">有头模式（调试 / 登录）</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-grid two">
+        <div class="field">
+          <label for="browser">浏览器类型</label>
+          <select id="browser" name="browser">
+            <option value="chrome">Chrome</option>
+            <option value="firefox">Firefox</option>
+            <option value="safari">Safari</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="scanAllResponses">网络请求过滤</label>
+          <select id="scanAllResponses" name="scan_all_responses">
+            <option value="false">仅关键响应</option>
+            <option value="true">扫描全部响应</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-grid two">
+        <div class="field">
+          <label for="retryFailed">失败重试</label>
+          <select id="retryFailed" name="retry_failed">
+            <option value="false">关闭</option>
+            <option value="true">开启</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="pageSize">每页条数</label>
+          <select id="pageSize" name="page_size">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 4px;">
+        <button type="submit" class="btn btn-primary" id="submitBtn">开始抓取</button>
+        <button type="reset" class="btn btn-secondary" id="resetBtn">重置配置</button>
+      </div>
+    </form>
+
+    <!-- 任务状态面板 -->
+    <div id="taskStatus" class="status-panel" style="display:none; margin-top: 20px;">
+      <div class="status-head">
+        <div class="loading-spinner" id="statusSpinner"></div>
+        <div>
+          <div id="statusText" class="status-text"></div>
+          <div id="statusDetails" class="status-details"></div>
+        </div>
+      </div>
+      <div class="task-meta" id="taskMeta"></div>
+      <div class="progress-track">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+      <div id="downloadButtons" class="download-buttons" style="display:none;">
+        <a id="downloadCSV" class="btn btn-secondary btn-sm" href="#">下载 CSV</a>
+        <a id="downloadXLSX" class="btn btn-secondary btn-sm" href="#">下载 XLSX</a>
+        <a id="downloadJSON" class="btn btn-secondary btn-sm" href="#">下载 JSON</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右：工作流程 -->
+  <div class="card">
+    <div class="card-header"><h2>工作流程</h2></div>
+    <ol class="guide">
+      <li>输入商品详情页 URL。</li>
+      <li>设置抓取页数、排序和浏览器模式。</li>
+      <li>提交任务后可通过轮询或 WebSocket 追踪进度。</li>
+      <li>抓取完成后直接下载 CSV / XLSX / JSON。</li>
+    </ol>
+
+    <div class="callout" style="margin-top: 16px;">
+      <strong>提示</strong>
+      <p>如果页面需要登录或反爬更严格，建议切换为有头模式并选择 Chrome。</p>
+    </div>
+  </div>
+
+  <!-- 评论预览（跨两列） -->
+  <div class="card span-full">
+    <div class="card-header">
+      <h2>评论预览</h2>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input id="reviewSearch" type="search" placeholder="搜索用户名 / 内容 / SKU" style="min-width:260px; height:32px; font-size:13px;" />
+        <button class="btn btn-secondary btn-sm" id="refreshPreview" type="button">刷新预览</button>
+      </div>
+    </div>
+    <div id="reviewPreview">
+      <div class="loading-block">等待抓取完成后显示最新评论预览...</div>
+    </div>
+  </div>
+
+  <!-- 最近任务（跨两列） -->
+  <div class="card span-full">
+    <div class="card-header">
+      <h2>最近任务</h2>
+      <button class="btn btn-secondary btn-sm" id="refreshTasks" type="button">刷新</button>
+    </div>
+    <div id="recentTasks">
+      <div class="loading-block">加载中...</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .status-panel {
+    padding: 16px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--bg-app);
+  }
+  .status-panel.failed { border-color: rgba(239, 68, 68, 0.32); background: var(--danger-soft); }
+
+  .status-head {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .status-text { font-weight: 600; color: var(--text-primary); font-size: 14px; }
+  .status-details { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+
+  .task-meta {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin: 12px 0;
+  }
+
+  .download-buttons {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .guide {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-body);
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .guide li { padding-left: 4px; }
+
+  /* preview */
+  .preview-toolbar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .preview-filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .preview-filters select { width: auto; min-width: 110px; height: 32px; font-size: 12px; }
+
+  .preview-table th {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .review-content { max-width: 64ch; white-space: pre-wrap; word-break: break-word; color: var(--text-body); }
+  .small-note { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+  .small-note strong { color: var(--text-body); }
+
+  /* task row */
+  .task-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 14px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+  }
+  .task-row + .task-row { margin-top: 8px; }
+  .task-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+  #presetRow { width: fit-content; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/escape.js"></script>
+<script>
+  const form = document.getElementById('scrapeForm');
+  const statusEl = document.getElementById('taskStatus');
+  const statusText = document.getElementById('statusText');
+  const statusDetails = document.getElementById('statusDetails');
+  const submitBtn = document.getElementById('submitBtn');
+  const progressBar = document.getElementById('progressBar');
+  const downloadButtons = document.getElementById('downloadButtons');
+  const taskMeta = document.getElementById('taskMeta');
+  let activeWs = null;
+  let activePollTimer = null;
+  let cachedPreview = null;
+  let currentReviewPage = { taskId: null, offset: 0, limit: 20 };
+
+  // Segmented preset buttons
+  document.querySelectorAll('#presetRow button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#presetRow button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('maxPages').value = btn.dataset.pages;
+    });
+  });
+
+  document.getElementById('refreshTasks').addEventListener('click', loadRecentTasks);
+  document.getElementById('refreshPreview').addEventListener('click', () => {
+    const taskId = statusEl.dataset.taskId;
+    if (taskId) loadReviewPreview(taskId);
+  });
+  document.getElementById('reviewSearch').addEventListener('input', renderCachedPreview);
+  document.getElementById('pageSize').addEventListener('change', () => {
+    const taskId = statusEl.dataset.taskId;
+    if (taskId) loadReviewPreview(taskId, 0, Number(document.getElementById('pageSize').value || 20));
+  });
+  document.getElementById('reviewSearch').addEventListener('input', () => {
+    if (cachedPreview) renderPreview(cachedPreview.taskId, cachedPreview.payload);
+  });
+
+  function setBusy(isBusy) {
+    submitBtn.disabled = isBusy;
+    submitBtn.textContent = isBusy ? '提交中...' : '开始抓取';
+  }
+
+  function resetDownloads() {
+    downloadButtons.style.display = 'none';
+    document.getElementById('downloadCSV').href = '#';
+    document.getElementById('downloadXLSX').href = '#';
+    document.getElementById('downloadJSON').href = '#';
+  }
+
+  function updateMeta(task) {
+    statusEl.dataset.taskId = task.task_id || '';
+    const expectedChip = task.expected_pages
+      ? `<span class="chip">预计 ${escapeHtml(String(task.expected_pages))} 页</span>`
+      : '';
+    taskMeta.innerHTML = [
+      task.task_id ? `<span class="chip">Task ${escapeHtml(task.task_id.substring(0, 8))}</span>` : '',
+      task.item_id ? `<span class="chip">Item ${escapeHtml(task.item_id)}</span>` : '',
+      task.created_at ? `<span class="chip">创建 ${escapeHtml(new Date(task.created_at).toLocaleString('zh-CN'))}</span>` : '',
+      task.completed_at ? `<span class="chip">完成 ${escapeHtml(new Date(task.completed_at).toLocaleString('zh-CN'))}</span>` : '',
+      expectedChip,
+    ].join('');
+  }
+
+  function attachWebSocket(taskId) {
+    if (activeWs) activeWs.close();
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    activeWs = new WebSocket(`${protocol}//${location.host}/api/reviews/tmall/tasks/${taskId}/ws`);
+
+    activeWs.onmessage = (evt) => {
+      try {
+        const payload = JSON.parse(evt.data);
+        if (payload.status === 'running' || payload.type === 'progress') {
+          statusText.textContent = '正在抓取任务...';
+          const pages = payload.page_count || 0;
+          const expected = payload.expected_pages;
+          statusDetails.textContent = expected
+            ? `已捕获 ${payload.review_count || 0} 条评论 · 第 ${pages} / ${expected} 页`
+            : `已捕获 ${payload.review_count || 0} 条评论 · 第 ${pages} 页`;
+          if (typeof payload.progress === 'number') {
+            progressBar.style.width = `${Math.max(5, Math.min(99, payload.progress))}%`;
+          } else {
+            progressBar.style.width = `${Math.min(75, 25 + ((payload.review_count || 0) / 10))}%`;
+          }
+        }
+        if (payload.status === 'done') finishTask(payload.task_id);
+        if (payload.status === 'failed') failTask(payload.error || '未知错误');
+      } catch (_) {}
+    };
+
+    activeWs.onerror = () => {
+      statusDetails.textContent = 'WebSocket 连接失败，已回退到轮询。';
+      startPolling(taskId);
+    };
+  }
+
+  function stopPolling() {
+    if (activePollTimer) clearTimeout(activePollTimer);
+    activePollTimer = null;
+  }
+
+  async function finishTask(taskId) {
+    stopPolling();
+    if (activeWs) { activeWs.close(); activeWs = null; }
+    statusText.textContent = '抓取完成';
+    statusDetails.textContent = '结果已准备好下载。';
+    progressBar.style.width = '100%';
+    downloadButtons.style.display = 'flex';
+    document.getElementById('downloadCSV').href = `/api/reviews/tmall/tasks/${taskId}/artifacts/csv`;
+    document.getElementById('downloadXLSX').href = `/api/reviews/tmall/tasks/${taskId}/artifacts/xlsx`;
+    document.getElementById('downloadJSON').href = `/api/reviews/tmall/tasks/${taskId}/artifacts/json`;
+    setBusy(false);
+    await loadRecentTasks();
+    await loadReviewPreview(taskId);
+  }
+
+  function normalizeText(value) { return String(value ?? '').toLowerCase(); }
+
+  function renderCachedPreview() {
+    if (!cachedPreview) return;
+    renderPreview(cachedPreview.taskId, cachedPreview.payload);
+  }
+
+  function renderPreview(taskId, payload) {
+    const el = document.getElementById('reviewPreview');
+    const query = normalizeText(document.getElementById('reviewSearch').value.trim());
+    const pageSize = Number(payload.limit || 20);
+    const pageItems = (payload.reviews || []).filter((review) => {
+      if (!query) return true;
+      const haystack = [review.user_nick, review.content, review.sku, review.review_date, review.append_content]
+        .map(normalizeText).join(' ');
+      return haystack.includes(query);
+    });
+
+    if (!pageItems.length) {
+      el.innerHTML = '<div class="loading-block">暂无匹配评论预览数据</div>';
+      return;
+    }
+    el.innerHTML = `
+      <div class="preview-toolbar">
+        <span class="chip">Task ${escapeHtml(taskId.substring(0, 8))}</span>
+        <span class="chip">偏移 ${safeNumber(payload.offset, 0)}</span>
+        <span class="chip">页大小 ${safeNumber(pageSize, 0)}</span>
+        <span class="chip">本页 ${safeNumber(pageItems.length, 0)}</span>
+        <span class="chip">总数 ${safeNumber(payload.review_count, 0)}</span>
+        <span class="chip">${payload.has_more ? '有更多' : '已到底'}</span>
+      </div>
+      <div class="preview-filters">
+        <button class="btn btn-secondary btn-sm" type="button" id="prevReviewPage" ${payload.offset === 0 ? 'disabled' : ''}>上一页</button>
+        <button class="btn btn-secondary btn-sm" type="button" id="nextReviewPage" ${payload.has_more ? '' : 'disabled'}>下一页</button>
+        <select id="reviewPageJump">
+          ${[10, 20, 50, 100].map((size) => `<option value="${size}" ${size === pageSize ? 'selected' : ''}>${size}/页</option>`).join('')}
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table class="preview-table">
+          <thead>
+            <tr>
+              <th>用户</th><th>时间</th><th>SKU</th><th>内容</th><th>有用</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pageItems.map((review) => `
+              <tr>
+                <td>${escapeHtml(review.user_nick || '匿名用户')}</td>
+                <td>${escapeHtml(review.review_date || '未知时间')}</td>
+                <td>${escapeHtml(review.sku || '未标注')}</td>
+                <td class="review-content">${escapeHtml(review.content || '无正文')}${review.append_content ? `<div class="small-note">追加：${escapeHtml(review.append_content || '')}</div>` : ''}</td>
+                <td>${safeNumber(review.helpful_count, 0)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    document.getElementById('prevReviewPage').addEventListener('click', () => loadReviewPreview(taskId, Math.max(0, payload.offset - pageSize), pageSize));
+    document.getElementById('nextReviewPage').addEventListener('click', () => loadReviewPreview(taskId, payload.offset + pageSize, pageSize));
+    document.getElementById('reviewPageJump').addEventListener('change', (event) => loadReviewPreview(taskId, payload.offset, Number(event.target.value)));
+  }
+
+  async function loadReviewPreview(taskId, offset = 0, limit = 20) {
+    currentReviewPage = { taskId, offset, limit };
+    const el = document.getElementById('reviewPreview');
+    el.innerHTML = '<div class="loading-block">加载评论预览中...</div>';
+    try {
+      const res = await fetch(`/api/reviews/tmall/tasks/${taskId}/reviews?offset=${offset}&limit=${limit}`);
+      if (!res.ok) throw new Error((await res.json()).detail || '预览加载失败');
+      const payload = await res.json();
+      cachedPreview = { taskId, payload };
+      renderPreview(taskId, payload);
+    } catch (err) {
+      el.innerHTML = `<div class="loading-block">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function failTask(message) {
+    stopPolling();
+    if (activeWs) { activeWs.close(); activeWs = null; }
+    statusEl.classList.add('failed');
+    statusText.textContent = '抓取失败';
+    statusDetails.textContent = message;
+    progressBar.style.background = 'var(--danger)';
+    progressBar.style.width = '100%';
+    setBusy(false);
+  }
+
+  async function startPolling(taskId) {
+    stopPolling();
+    const poll = async () => {
+      const res = await fetch(`/api/reviews/tmall/tasks/${taskId}`);
+      if (!res.ok) { failTask('任务状态读取失败'); return; }
+      const task = await res.json();
+      updateMeta(task);
+      if (task.status === 'done') return finishTask(taskId);
+      if (task.status === 'failed') return failTask(task.error || '未知错误');
+      statusText.textContent = '正在抓取任务...';
+      statusDetails.textContent = `已捕获 ${task.review_count || 0} 条评论`;
+      progressBar.style.width = `${Math.min(80, 25 + ((task.review_count || 0) / 10))}%`;
+      activePollTimer = setTimeout(poll, 2000);
+    };
+    poll();
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    statusEl.style.display = 'block';
+    statusEl.classList.remove('failed');
+    progressBar.style.background = 'var(--accent)';
+    progressBar.style.width = '0%';
+    resetDownloads();
+    statusText.textContent = '正在提交任务...';
+    statusDetails.textContent = '';
+
+    const payload = {
+      url: document.getElementById('url').value,
+      max_pages: parseInt(document.getElementById('maxPages').value, 10),
+      sort: document.getElementById('sort').value,
+      headless: document.getElementById('headless').value === 'true',
+      browser: document.getElementById('browser').value,
+      scan_all_responses: document.getElementById('scanAllResponses').value === 'true',
+    };
+
+    try {
+      const res = await fetch('/api/reviews/tmall/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || '任务创建失败');
+      const task = await res.json();
+      updateMeta(task);
+      statusText.textContent = '任务已创建';
+      statusDetails.textContent = '等待采集器返回结果...';
+      progressBar.style.width = '24%';
+      attachWebSocket(task.task_id);
+      startPolling(task.task_id);
+      await loadReviewPreview(task.task_id, 0, Number(document.getElementById('pageSize').value || 20)).catch(() => {});
+    } catch (err) {
+      failTask(err.message);
+    }
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    setTimeout(() => {
+      document.querySelectorAll('#presetRow button').forEach(b => b.classList.remove('active'));
+      document.querySelector('#presetRow button[data-pages="10"]')?.classList.add('active');
+      document.getElementById('maxPages').value = 10;
+    }, 0);
+  });
+
+  async function deleteTask(taskId) {
+    const res = await fetch(`/api/reviews/tmall/tasks/${taskId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error((await res.json()).detail || '删除失败');
+    await loadRecentTasks();
+  }
+
+  async function retryTask(taskId) {
+    const res = await fetch(`/api/reviews/tmall/tasks/${taskId}/retry`, { method: 'POST' });
+    if (!res.ok) throw new Error((await res.json()).detail || '重试失败');
+    const payload = await res.json();
+    await loadRecentTasks();
+    if (payload.new_task_id) await loadReviewPreview(payload.new_task_id, 0, Number(document.getElementById('pageSize').value || 20)).catch(() => {});
+  }
+
+  async function loadRecentTasks() {
+    const el = document.getElementById('recentTasks');
+    el.innerHTML = '<div class="loading-block">加载中...</div>';
+    try {
+      const res = await fetch('/api/reviews/tmall/tasks?limit=10');
+      const tasks = await res.json();
+      if (!tasks.length) {
+        el.innerHTML = '<div class="loading-block">暂无任务记录</div>';
+        return;
+      }
+      el.innerHTML = tasks.map((t) => `
+        <div class="task-row">
+          <span class="status status-${t.status}">${t.status}</span>
+          <div>
+            <div style="font-weight:600; color:var(--text-primary); margin-bottom:2px;">${escapeHtml(t.item_id || 'Unknown Item')}</div>
+            <div class="small-note">${safeNumber(t.review_count, 0)} 条评论 · ${safeNumber(t.page_count, 0)} 页 · ${t.created_at ? escapeHtml(new Date(t.created_at).toLocaleString('zh-CN')) : '-'}</div>
+            ${t.error ? `<div class="small-note" style="color:var(--danger);">${escapeHtml(t.error)}</div>` : ''}
+          </div>
+          <div class="task-actions">
+            ${t.status === 'done' ? `<a href="/api/reviews/tmall/tasks/${t.task_id}/artifacts/csv" class="btn btn-secondary btn-sm">CSV</a>` : ''}
+            ${t.status === 'done' || t.status === 'failed' ? `<button class="btn btn-secondary btn-sm" data-action="retry" data-task-id="${t.task_id}" type="button">重试</button>` : ''}
+            <button class="btn btn-ghost btn-sm" data-action="open" data-task-id="${t.task_id}" type="button">查看</button>
+            <button class="btn btn-ghost btn-sm" data-action="delete" data-task-id="${t.task_id}" type="button">删除</button>
+          </div>
+        </div>
+      `).join('');
+
+      el.querySelectorAll('button[data-action="delete"]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('删除该任务记录？')) return;
+          await deleteTask(btn.dataset.taskId);
+        });
+      });
+      el.querySelectorAll('button[data-action="retry"]').forEach((btn) => {
+        btn.addEventListener('click', async () => { await retryTask(btn.dataset.taskId); });
+      });
+      el.querySelectorAll('button[data-action="open"]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          await loadReviewPreview(btn.dataset.taskId, 0, Number(document.getElementById('pageSize').value || 20));
+        });
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="loading-block">任务加载失败：${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  loadRecentTasks();
+</script>
+{% endblock %}

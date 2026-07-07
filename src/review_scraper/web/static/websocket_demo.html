@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket 实时更新演示</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #666;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .status.connected {
+            border-left-color: #28a745;
+        }
+        .status.error {
+            border-left-color: #dc3545;
+        }
+        .status h3 {
+            margin: 0 0 15px 0;
+            color: #333;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .status-item:last-child {
+            border-bottom: none;
+        }
+        .status-label {
+            color: #666;
+            font-weight: 500;
+        }
+        .status-value {
+            color: #333;
+            font-weight: bold;
+        }
+        .log {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .timestamp {
+            color: #666;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 WebSocket 实时任务更新</h1>
+
+        <div class="input-group">
+            <label for="taskId">任务 ID:</label>
+            <input type="text" id="taskId" placeholder="输入任务ID，例如: 12345678-1234-1234-1234-123456789abc">
+        </div>
+
+        <div>
+            <button id="connectBtn" onclick="connect()">连接</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>断开</button>
+        </div>
+
+        <div class="status" id="status">
+            <h3>连接状态: <span id="connectionStatus">未连接</span></h3>
+        </div>
+
+        <div class="status connected" id="taskStatus" style="display: none;">
+            <h3>任务状态</h3>
+            <div class="status-item">
+                <span class="status-label">任务ID:</span>
+                <span class="status-value" id="displayTaskId">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">状态:</span>
+                <span class="status-value" id="taskStatusValue">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">评论数:</span>
+                <span class="status-value" id="reviewCount">0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">页数:</span>
+                <span class="status-value" id="pageCount">0</span>
+            </div>
+            <div class="status-item" id="errorItem" style="display: none;">
+                <span class="status-label">错误:</span>
+                <span class="status-value" id="errorMessage" style="color: #dc3545;">-</span>
+            </div>
+        </div>
+
+        <div class="log">
+            <strong>日志:</strong>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+
+        function addLog(message) {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString('zh-CN');
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span>${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function connect() {
+            const taskId = document.getElementById('taskId').value.trim();
+            if (!taskId) {
+                alert('请输入任务ID');
+                return;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/api/reviews/tmall/tasks/${taskId}/ws`;
+
+            addLog(`连接到: ${wsUrl}`);
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                document.getElementById('connectionStatus').textContent = '已连接';
+                document.getElementById('status').classList.add('connected');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                document.getElementById('taskStatus').style.display = 'block';
+                addLog('✅ WebSocket 连接成功');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                addLog(`📨 收到消息: ${JSON.stringify(data)}`);
+
+                if (data.type === 'status') {
+                    document.getElementById('displayTaskId').textContent = data.task_id;
+                    document.getElementById('taskStatusValue').textContent = data.status;
+                    document.getElementById('reviewCount').textContent = data.review_count || 0;
+                    document.getElementById('pageCount').textContent = data.page_count || 0;
+
+                    if (data.error) {
+                        document.getElementById('errorItem').style.display = 'flex';
+                        document.getElementById('errorMessage').textContent = data.error;
+                    } else {
+                        document.getElementById('errorItem').style.display = 'none';
+                    }
+                }
+            };
+
+            ws.onerror = (error) => {
+                addLog('❌ WebSocket 错误: ' + error);
+                document.getElementById('status').classList.add('error');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('connectionStatus').textContent = '已断开';
+                document.getElementById('status').classList.remove('connected');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                addLog('🔌 WebSocket 连接关闭');
+                ws = null;
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        // 页面加载时添加初始日志
+        window.onload = () => {
+            addLog('页面已加载，请输入任务ID并点击连接');
+        };
+    </script>
+</body>
+</html>

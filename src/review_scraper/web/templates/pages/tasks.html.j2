@@ -1,0 +1,60 @@
+{% extends "base.html.j2" %}
+{% block title %}Tasks · Review Scraper{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>抓取任务</h1>
+  <p>查看所有抓取任务的运行状态与历史记录</p>
+</section>
+
+<section class="section">
+  <div class="card">
+    <h3>全部任务</h3>
+    <div class="table-wrap" id="taskTable">
+      <div class="loading">加载中...</div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block head %}
+<script>
+  async function loadTasks() {
+    const res = await fetch("/api/reviews/tmall/tasks?limit=50");
+    const tasks = await res.json();
+    const el = document.getElementById("taskTable");
+    if (!tasks.length) {
+      el.innerHTML = '<div class="small" style="padding:14px">暂无任务</div>';
+      return;
+    }
+    el.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>状态</th>
+            <th>Task ID</th>
+            <th>商品ID</th>
+            <th>评论数</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tasks.map(t => `
+            <tr>
+              <td><span class="status-dot status-${t.status}"></span>${t.status}</td>
+              <td class="small">${t.task_id.slice(0, 8)}...</td>
+              <td>${t.item_id || "-"}</td>
+              <td>${t.review_count}</td>
+              <td class="small">${t.created_at ? new Date(t.created_at).toLocaleString() : "-"}</td>
+              <td>
+                ${t.status === "done" ? `<a href="/api/reviews/tmall/tasks/${t.task_id}/download?format=csv" class="btn btn-secondary" style="font-size:11px;padding:4px 8px">CSV</a>` : ""}
+                ${t.status === "failed" ? `<span class="badge bad">${t.error}</span>` : ""}
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>`;
+  }
+  loadTasks();
+  setInterval(loadTasks, 10000);
+</script>
+{% endblock %}

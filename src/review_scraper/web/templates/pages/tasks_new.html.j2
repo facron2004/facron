@@ -1,0 +1,188 @@
+{% extends "base_new.html.j2" %}
+
+{% block title %}任务 · Review Scraper{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>任务工作台</h1>
+  <p>集中查看抓取任务状态、成功率、失败证据和导出入口。</p>
+</div>
+
+<div class="grid grid-4" style="margin-bottom: 16px;">
+  <div class="metric-card"><div class="metric-label">总任务</div><div class="metric-value" id="metricTotal">--</div></div>
+  <div class="metric-card"><div class="metric-label">运行中</div><div class="metric-value" id="metricRunning">--</div></div>
+  <div class="metric-card"><div class="metric-label">已完成</div><div class="metric-value" id="metricDone">--</div></div>
+  <div class="metric-card"><div class="metric-label">失败</div><div class="metric-value" id="metricFailed">--</div></div>
+</div>
+
+<div class="card" style="margin-bottom: 16px;">
+  <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <span class="metric-label">状态</span>
+      <div class="segmented" id="statusFilter">
+        <button data-status="all" class="active">全部</button>
+        <button data-status="running">运行中</button>
+        <button data-status="done">已完成</button>
+        <button data-status="failed">失败</button>
+      </div>
+      <select id="taskTypeFilter" style="width:auto; min-width:160px; height:32px; font-size:12px;">
+        <option value="all">全部类型</option>
+        <option value="review_scrape">评论抓取</option>
+      </select>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <span class="metric-label"><span id="taskCount">--</span> 个任务</span>
+      <button class="btn btn-secondary btn-sm" id="refreshTasks" type="button">刷新</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>任务列表</h2></div>
+  <div id="tasksTable">
+    <div class="loading-block">
+      <div class="loading-spinner" style="margin: 0 auto 12px;"></div>
+      加载中...
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .task-table th {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .task-table td { font-size: 13px; vertical-align: top; }
+  .task-table .mono { color: var(--text-body); }
+  .summary-card { display:flex; flex-direction:column; gap:6px; }
+  .summary-card .value { font-size: 28px; font-weight: 700; color: var(--text-primary); }
+  .summary-card .label { font-size: 12px; color: var(--text-muted); }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let allTasks = [];
+  let currentFilter = 'all';
+  let currentType = 'all';
+
+  async function loadTasks() {
+    try {
+      const res = await fetch('/api/reviews/tmall/tasks?limit=100');
+      allTasks = await res.json();
+      renderMetrics();
+      renderTasks();
+    } catch (err) {
+      document.getElementById('tasksTable').innerHTML =
+        '<div class="error-state">任务加载失败，请稍后重试</div>';
+    }
+  }
+
+  function renderMetrics() {
+    document.getElementById('metricTotal').textContent = allTasks.length;
+    document.getElementById('metricRunning').textContent = allTasks.filter(t => t.status === 'running').length;
+    document.getElementById('metricDone').textContent = allTasks.filter(t => t.status === 'done').length;
+    document.getElementById('metricFailed').textContent = allTasks.filter(t => t.status === 'failed').length;
+  }
+
+  function renderTasks() {
+    const filtered = allTasks.filter((t) => {
+      const statusMatch = currentFilter === 'all' || t.status === currentFilter;
+      const typeMatch = currentType === 'all' || (t.task_type || 'review_scrape') === currentType;
+      return statusMatch && typeMatch;
+    });
+
+    document.getElementById('taskCount').textContent = filtered.length;
+
+    if (filtered.length === 0) {
+      document.getElementById('tasksTable').innerHTML =
+        '<div class="empty-state">暂无匹配任务</div>';
+      return;
+    }
+
+    document.getElementById('tasksTable').innerHTML = `
+      <div class="table-wrap">
+        <table class="task-table">
+          <thead>
+            <tr>
+              <th>状态</th><th>任务 ID</th><th>商品 ID</th><th>评论</th><th>页数</th><th>失败原因</th><th>创建时间</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(task => `
+              <tr>
+                <td><span class="status status-${task.status}">${task.status}</span></td>
+                <td class="mono">${task.task_id.substring(0, 8)}…</td>
+                <td style="font-weight:500; color:var(--text-primary);">${task.item_id || 'N/A'}</td>
+                <td>${task.review_count || 0}</td>
+                <td>${task.page_count || 0}</td>
+                <td style="max-width: 260px; color: var(--text-muted);">${task.error || '—'}</td>
+                <td style="font-size:12px; color:var(--text-muted);">
+                  ${task.created_at ? new Date(task.created_at).toLocaleString('zh-CN', {
+                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                  }) : 'N/A'}
+                </td>
+                <td>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <a href="/tasks/${task.task_id}" class="btn btn-ghost btn-sm">详情</a>
+                    ${task.status === 'done' ? `
+                      <a href="/api/reviews/tmall/tasks/${task.task_id}/artifacts/csv" class="btn btn-secondary btn-sm">CSV</a>
+                      <a href="/api/reviews/tmall/tasks/${task.task_id}/artifacts/json" class="btn btn-secondary btn-sm">JSON</a>
+                    ` : task.status === 'failed' ? `
+                      <button class="btn btn-secondary btn-sm" data-action="retry" data-task="${task.task_id}">重试</button>
+                      <a href="/tasks/${task.task_id}#failure" class="btn btn-ghost btn-sm">证据</a>
+                    ` : `
+                      <span style="font-size:12px; color:var(--text-muted);">进行中</span>
+                    `}
+                    <button class="btn btn-ghost btn-sm" data-action="delete" data-task="${task.task_id}">删除</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  document.querySelectorAll('#statusFilter button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#statusFilter button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentFilter = btn.dataset.status;
+      renderTasks();
+    });
+  });
+
+  document.getElementById('taskTypeFilter').addEventListener('change', (event) => {
+    currentType = event.target.value;
+    renderTasks();
+  });
+
+  document.getElementById('refreshTasks').addEventListener('click', loadTasks);
+  document.getElementById('tasksTable').addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const taskId = target.dataset.task;
+    const action = target.dataset.action;
+    if (!taskId || !action) return;
+    if (action === 'retry') {
+      await fetch(`/api/reviews/tmall/tasks/${taskId}/retry`, { method: 'POST' });
+      loadTasks();
+    }
+    if (action === 'delete') {
+      if (!confirm('删除该任务？')) return;
+      await fetch(`/api/reviews/tmall/tasks/${taskId}`, { method: 'DELETE' });
+      loadTasks();
+    }
+  });
+
+  loadTasks();
+  setInterval(loadTasks, 5000);
+</script>
+{% endblock %}
